@@ -20,6 +20,7 @@ const WIKI_IMAGES_SUBDIR = process.env.WIKI_IMAGES_SUBDIR || 'raw/images';
 function createSteps(jevService: JevService, wikiBaseDir: string) {
   const preprocessStep = async (ctx: UploadContext): Promise<void> => {
     // Stub for pre-processing
+    
   };
 
   const ocrStep = async (ctx: UploadContext): Promise<void> => {

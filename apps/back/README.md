@@ -113,10 +113,12 @@ npm run start      # node dist/index.js
 ## Пайплайн обработки (Saga)
 
 ```
-preprocess → OCR (tesseract) → classify (JEV) → save → postprocess
+preprocess → OCR (tesseract) → classify (JEV) → name → save → postprocess
 ```
 
 Каждый шаг изолирован, при ошибке срабатывает `onError`, при успехе — `onComplete`. Контекст передаётся по цепочке.
+
+Шаг `name` ещё не в коде. Он читает заголовок документа из полосы скриншота (имя репозитория, ключ задачи, вкладка, тема письма) и кладёт его в имя файла. Категория Jev для этого не используется. Правила и список файлов: `store/wiki/filename-from-screenshot.md`.
 
 ## Тестирование
 
