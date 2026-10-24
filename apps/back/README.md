@@ -8,12 +8,12 @@
 apps/back/
 ├── .envs/
 │   └── dev.env              # Переменные окружения для разработки
-├── store/                   # Локальное хранилище (не в git)
-│   ├── tmp/
-│   │   └── upload/          # Временные файлы при загрузке
-│   └── wiki/
-│       └── raw/
-│           └── images/      # Сохранённые и классифицированные изображения
+├── store/                   # Knowledge base (KB_BASE_DIR, не в git)
+│   ├── tmp/                 # Временные файлы при загрузке
+│   ├── raw/
+│   │   ├── images/          # Препроцессированные скриншоты (вход OCR / Vision)
+│   │   └── docs/            # Распознанные (OCR) файлы
+│   └── wiki/                # Переработанные файлы
 ├── test/
 │   └── fixtures/            # Тестовые файлы для интеграционных тестов
 │       ├── github-repo.png
@@ -35,7 +35,8 @@ apps/back/
 │   │   ├── upload.service.ts         # Оркестрация пайплайна
 │   │   └── upload.pipeline.ts        # Saga/FSM шаги: preprocess → OCR → classify → save → postprocess
 │   ├── utils/
-│   │   └── ocr.ts                    # Запуск tesseract через child_process
+│   │   ├── ocr.ts                    # Запуск tesseract через child_process
+│   │   └── preprocess.ts             # Preprocess для OCR: grayscale → invert? → contrast → upscale
 │   ├── fsm/                          # Мини-фреймворк Saga/FSM
 │   │   ├── types.ts
 │   │   ├── saga.ts
@@ -54,8 +55,8 @@ apps/back/
 | OPENROUTER_API_URL | Эндпоинт OpenRouter | https://openrouter.ai/api/alpha/decisions |
 | OPENROUTER_API_KEY | API ключ (обязателен) | — |
 | JEV_MODEL | Модель для классификации | typesafe/jev-1.13 |
-| WIKI_BASE_DIR | Базовая папка для сохранения (относительно apps/back) | store/wiki |
-| UPLOAD_TEMP_DIR | Временная папка для загрузок (относительно apps/back) | store/tmp/upload |
+| KB_BASE_DIR | Корень knowledge base (относительно apps/back): `tmp/`, `raw/`, `wiki/` | store |
+| UPLOAD_TEMP_DIR | Временная папка для загрузок (обычно `KB_BASE_DIR/tmp`) | store/tmp |
 | UPLOAD_MAX_FILE_SIZE_MB | Макс. размер файла | 10 |
 
 ## Запуск
@@ -95,7 +96,7 @@ npm run start      # node dist/index.js
     {
       "success": true,
       "originalName": "github-repo.png",
-      "savedImagePath": "store/wiki/raw/images/2026-09-27_16-21-16_github_repo.png",
+      "savedImagePath": "store/raw/images/2026-09-27_16-21-16_github_repo.png",
       "category": "github_repo",
       "confidence": 1,
       "probabilities": { "github_repo": 1 }
@@ -115,6 +116,8 @@ npm run start      # node dist/index.js
 ```
 preprocess → OCR (tesseract) → classify (JEV) → name → save → postprocess
 ```
+
+`preprocess` готовит изображение для Tesseract и будущего Vision (имя/путь/URL): grayscale → при тёмном UI invert → normalize → upscale ×2 при маленьком кадре → sharpen → белая рамка 10px. Hard binarization не делается — её оставляет Tesseract. В `raw/images` сохраняется именно эта препроцессированная PNG; исходный upload из tmp удаляется.
 
 Каждый шаг изолирован, при ошибке срабатывает `onError`, при успехе — `onComplete`. Контекст передаётся по цепочке.
 

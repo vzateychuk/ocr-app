@@ -26,7 +26,7 @@
       "env": {
         "NODE_ENV": "development"
       },
-      "envFile": "${workspaceFolder}/.envs/dev.env"
+      "envFile": "${workspaceFolder}/apps/back/.envs/dev.env"
     }
   ]
 }

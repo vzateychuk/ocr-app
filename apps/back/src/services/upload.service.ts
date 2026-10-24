@@ -6,11 +6,11 @@ import type { UploadResult, ImageCategory } from '../types/jev.types.js';
 export class UploadService {
   constructor(
     private readonly jevService: JevService,
-    private readonly wikiBaseDir: string
+    private readonly kbBaseDir: string
   ) {}
 
   async process(filePath: string, originalName: string): Promise<UploadResult> {
-    const saga = createUploadSaga(this.jevService, this.wikiBaseDir);
+    const saga = createUploadSaga(this.jevService, this.kbBaseDir);
 
     try {
       const ctx = await runSaga<UploadContext>(saga, {

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, '..', '..');
+const projectRoot = path.resolve(__dirname, '..');
 config({ path: path.join(projectRoot, '.envs', 'dev.env') });
 
 import express from 'express';
@@ -22,7 +22,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const WIKI_BASE_DIR = process.env.WIKI_BASE_DIR || 'store/wiki';
+const KB_BASE_DIR = process.env.KB_BASE_DIR || 'store';
 
 if (!OPENROUTER_API_KEY) {
   console.error('[CRITICAL] Missing OPENROUTER_API_KEY environment variable');
@@ -30,7 +30,7 @@ if (!OPENROUTER_API_KEY) {
 }
 
 const jevService = new JevService(OPENROUTER_API_KEY);
-const uploadProcessor = new UploadService(jevService, WIKI_BASE_DIR);
+const uploadProcessor = new UploadService(jevService, KB_BASE_DIR);
 const uploadController = new UploadController(uploadProcessor);
 
 app.use(helmet());

@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 
 function getUploadDir(): string {
-  return process.env.UPLOAD_TEMP_DIR || 'store/tmp/upload/';
+  return process.env.UPLOAD_TEMP_DIR || 'store/tmp';
 }
 
 function ensureUploadDir(): void {
