@@ -1,7 +1,7 @@
 [
   {
     "group": "A",
-    "expectedEntityId": "TODO: fill expected entityId for group A (c175021a-3284)",
+    "expectedEntityId": "src/common/utils/maven/dependency_list.py",
     "files": [
       "c175021a-3284-code-01.png",
       "c175021a-3284-code-02.png",
@@ -16,7 +16,7 @@
   },
   {
     "group": "B",
-    "expectedEntityId": "TODO: fill expected entityId for group B (code)",
+    "expectedEntityId": "src/common/analysers/principles/ta6_ft03.py",
     "files": [
       "code-10.png",
       "code-11.png",

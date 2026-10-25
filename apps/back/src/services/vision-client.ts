@@ -5,6 +5,10 @@ export interface VisionClientConfig {
   apiKey: string;
   model: string;
   timeoutMs: number;
+  maxTokens: number;
+  temperature: number;
+  topP: number;
+  enableThinking: boolean;
 }
 
 export interface VisionClient {
@@ -46,11 +50,11 @@ function createVisionClient(config: VisionClientConfig): VisionClient {
               ],
             },
           ],
-          max_tokens: 1024,
-          temperature: 0.1,
-          top_p: 0.95,
+          max_tokens: config.maxTokens,
+          temperature: config.temperature,
+          top_p: config.topP,
           // Disable thinking mode for faster, deterministic JSON output
-          chat_template_kwargs: { enable_thinking: false },
+          chat_template_kwargs: { enable_thinking: config.enableThinking },
         } as any,
         { signal: controller.signal }
       );
@@ -84,11 +88,15 @@ export function buildVisionClientFromEnv(): VisionClient | null {
   const apiKey = process.env.VISION_API_KEY;
   const model = process.env.VISION_MODEL || 'nvidia/nemotron-3.5-super-vl-120b-a12b';
   const timeoutMs = Number(process.env.VISION_TIMEOUT_MS) || 60000;
+  const maxTokens = Number(process.env.VISION_MAX_TOKENS) || 1024;
+  const temperature = Number(process.env.VISION_TEMPERATURE) || 0.1;
+  const topP = Number(process.env.VISION_TOP_P) || 0.95;
+  const enableThinking = process.env.VISION_ENABLE_THINKING === 'true';
 
   if (!apiKey) {
     console.warn('[VisionClient] VISION_API_KEY not set — Vision identification will soft-fail');
     return null;
   }
 
-  return createVisionClient({ baseURL, apiKey, model, timeoutMs });
+  return createVisionClient({ baseURL, apiKey, model, timeoutMs, maxTokens, temperature, topP, enableThinking });
 }
