@@ -99,6 +99,42 @@ function sanitizeSlug(canonicalId: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
+function formatVisionError(err: unknown): string {
+  // Handle DOMException (AbortError) which is not instanceof Error
+  if (err instanceof DOMException) {
+    return `${err.name}: ${err.message}`;
+  }
+  if (!(err instanceof Error)) {
+    return String(err);
+  }
+
+  let details = err.message;
+  const anyErr = err as any;
+
+  if (anyErr.status) {
+    details += ` (HTTP status: ${anyErr.status})`;
+  }
+  if (anyErr.code) {
+    details += ` (Code: ${anyErr.code})`;
+  }
+  if (anyErr.type) {
+    details += ` (Type: ${anyErr.type})`;
+  }
+  if (anyErr.error) {
+    try {
+      const errorBody = typeof anyErr.error === 'string' ? anyErr.error : JSON.stringify(anyErr.error);
+      details += ` [API Error: ${errorBody}]`;
+    } catch {
+      // ignore
+    }
+  }
+  if (anyErr.cause) {
+    details += ` [Cause: ${anyErr.cause instanceof Error ? anyErr.cause.message : String(anyErr.cause)}]`;
+  }
+
+  return details;
+}
+
 export class IdeCodeIdentifier implements Identifier {
   category = 'ide_code' as const;
 
@@ -129,7 +165,8 @@ export class IdeCodeIdentifier implements Identifier {
         },
       };
     } catch (err) {
-      console.warn('[IdeCodeIdentifier] Vision identification failed:', err instanceof Error ? err.message : err);
+      const detailedMsg = formatVisionError(err);
+      console.warn(`[IdeCodeIdentifier] Vision identification failed: ${detailedMsg}`);
       return undefined;
     }
   }

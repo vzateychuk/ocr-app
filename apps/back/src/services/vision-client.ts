@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import fs from 'node:fs/promises';
 
 export interface VisionClientConfig {
   baseURL: string;
@@ -29,6 +28,7 @@ function createVisionClient(config: VisionClientConfig): VisionClient {
   }): Promise<string> {
     const base64Image = input.imageBuffer.toString('base64');
     const dataUrl = `data:image/png;base64,${base64Image}`;
+    console.debug(`[VisionClient] Request: model=${config.model}, imageSize=${input.imageBuffer.length}B, base64Len=${base64Image.length}, timeout=${input.timeoutMs ?? config.timeoutMs}ms`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? config.timeoutMs);
@@ -46,21 +46,30 @@ function createVisionClient(config: VisionClientConfig): VisionClient {
               ],
             },
           ],
-          max_tokens: 500,
-          temperature: 0,
-        },
+          max_tokens: 1024,
+          temperature: 0.1,
+          top_p: 0.95,
+          // Disable thinking mode for faster, deterministic JSON output
+          chat_template_kwargs: { enable_thinking: false },
+        } as any,
         { signal: controller.signal }
       );
 
       const content = response.choices[0]?.message?.content?.trim();
+      console.debug(`[VisionClient] Response: contentLength=${content?.length ?? 0}, finishReason=${response.choices[0]?.finish_reason}`);
       if (!content) {
         throw new Error('Empty response from Vision model');
       }
       return content;
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
+      const isAbort = err instanceof DOMException && err.name === 'AbortError' ||
+        err instanceof Error && err.name === 'AbortError';
+      if (isAbort) {
+        console.warn(`[VisionClient] Request timeout after ${input.timeoutMs ?? config.timeoutMs}ms`);
         throw new Error(`Vision request timeout after ${input.timeoutMs ?? config.timeoutMs}ms`);
       }
+      const anyErr = err as any;
+      console.warn(`[VisionClient] API Error: status=${anyErr.status}, code=${anyErr.code}, type=${anyErr.type}, message=${anyErr.message}`);
       throw err;
     } finally {
       clearTimeout(timeout);
@@ -71,10 +80,10 @@ function createVisionClient(config: VisionClientConfig): VisionClient {
 }
 
 export function buildVisionClientFromEnv(): VisionClient | null {
-  const baseURL = process.env.VISION_BASE_URL || 'undefined';
-  const apiKey = process.env.VISION_API_KEY || 'undefined';
-  const model = process.env.VISION_MODEL || 'undefined';
-  const timeoutMs = Number(process.env.VISION_TIMEOUT_MS) || 15000;
+  const baseURL = process.env.VISION_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+  const apiKey = process.env.VISION_API_KEY;
+  const model = process.env.VISION_MODEL || 'nvidia/nemotron-3.5-super-vl-120b-a12b';
+  const timeoutMs = Number(process.env.VISION_TIMEOUT_MS) || 60000;
 
   if (!apiKey) {
     console.warn('[VisionClient] VISION_API_KEY not set — Vision identification will soft-fail');
