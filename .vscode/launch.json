@@ -5,23 +5,21 @@
       "type": "node",
       "request": "launch",
       "name": "Debug Backend",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "tsx",
-        "watch"
-      ],
-      "args": [
-        "${workspaceFolder}/apps/back/src/index.ts"
-      ],
       "cwd": "${workspaceFolder}/apps/back",
+      "program": "${workspaceFolder}/apps/back/src/index.ts",
+      "runtimeArgs": [
+        "--watch",
+        "--import",
+        "tsx"
+      ],
       "sourceMaps": true,
       "restart": true,
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
       "skipFiles": [
         "<node_internals>/**",
-        "${workspaceFolder}/node_modules/**/*.js",
-        "${workspaceFolder}/apps/back/node_modules/**/*.js"
+        "${workspaceFolder}/node_modules/**",
+        "${workspaceFolder}/apps/back/node_modules/**"
       ],
       "env": {
         "NODE_ENV": "development"

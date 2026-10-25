@@ -59,6 +59,8 @@ export interface UploadSuccessResult {
   category: ImageCategory;
   confidence?: number;
   probabilities?: Partial<Record<ImageCategory, number>>;
+  /** Канонический id сущности (например, src/common/analysers/library/lib_maven.py) */
+  entityId?: string;
 }
 
 export interface UploadErrorResult {

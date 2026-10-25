@@ -17,6 +17,7 @@ import { UploadController } from './controllers/upload.controller.js';
 import { uploadMiddleware } from './middlewares/upload.middleware.js';
 import { validateFileContent } from './middlewares/validate-file.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
+import { buildVisionClientFromEnv } from './services/vision-client.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -30,7 +31,8 @@ if (!OPENROUTER_API_KEY) {
 }
 
 const jevService = new JevService(OPENROUTER_API_KEY);
-const uploadProcessor = new UploadService(jevService, KB_BASE_DIR);
+const visionClient = buildVisionClientFromEnv();
+const uploadProcessor = new UploadService(jevService, visionClient, KB_BASE_DIR);
 const uploadController = new UploadController(uploadProcessor);
 
 app.use(helmet());

@@ -1,0 +1,55 @@
+[
+  {
+    "group": "A",
+    "expectedEntityId": "TODO: fill expected entityId for group A (c175021a-3284)",
+    "files": [
+      "c175021a-3284-code-01.png",
+      "c175021a-3284-code-02.png",
+      "c175021a-3284-code-03.png",
+      "c175021a-3284-code-04.png",
+      "c175021a-3284-code-05.png",
+      "c175021a-3284-code-06.png",
+      "c175021a-3284-code-07.png",
+      "c175021a-3284-code-08.png",
+      "c175021a-3284-code-09.png"
+    ]
+  },
+  {
+    "group": "B",
+    "expectedEntityId": "TODO: fill expected entityId for group B (code)",
+    "files": [
+      "code-10.png",
+      "code-11.png",
+      "code-12.png",
+      "code-13.png",
+      "code-14.png",
+      "code-15.png",
+      "code-16.png",
+      "code-17.png",
+      "code-18.png",
+      "code-19.png",
+      "code-20.png"
+    ]
+  },
+  {
+    "group": "C",
+    "expectedEntityId": "TODO: fill expected entityId for group C (jira-C175021A)",
+    "files": [
+      "jira-C175021A-3282.png"
+    ]
+  },
+  {
+    "group": "D",
+    "expectedEntityId": "TODO: fill expected entityId for group D (pr422-C175021A-2895.1)",
+    "files": [
+      "pr422-C175021A-2895.1.png"
+    ]
+  },
+  {
+    "group": "E",
+    "expectedEntityId": "TODO: fill expected entityId for group E (pr422-C175021A-2895.2)",
+    "files": [
+      "pr422-C175021A-2895.2.png"
+    ]
+  }
+]

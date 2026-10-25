@@ -1,5 +1,6 @@
-import sharp from 'sharp';
+import sharp, { type Sharp, type OutputInfo } from 'sharp';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 
 /** Mean luminance below this → treat as dark UI and invert. */
 const DARK_MEAN_THRESHOLD = 128;
@@ -11,8 +12,12 @@ const UPSCALE_FACTOR = 2;
 /** White margin so Tesseract does not see an “empty page” / edge-clipped glyphs. */
 const BORDER_PX = 10;
 
+/** Ratio of image height to crop from top for Vision (tab bar + breadcrumbs). */
+const VISION_CROP_TOP_RATIO = Number(process.env.VISION_CROP_TOP_RATIO) || 0.18;
+
 export interface PreprocessResult {
   outputPath: string;
+  visionCropPath?: string;
   inverted: boolean;
   meanLuminance: number;
   scale: number;
@@ -68,7 +73,9 @@ export async function preprocessForOcr(imagePath: string): Promise<PreprocessRes
     });
   }
 
-  pipeline = pipeline
+  // Apply sharpen and border for OCR
+  const ocrPipeline = pipeline
+    .clone()
     .sharpen({ sigma: 0.8 })
     .extend({
       top: BORDER_PX,
@@ -79,9 +86,43 @@ export async function preprocessForOcr(imagePath: string): Promise<PreprocessRes
     })
     .png();
 
-  await pipeline.toFile(outputPath);
+  await ocrPipeline.toFile(outputPath);
 
-  return { outputPath, inverted, meanLuminance, scale };
+  // Create Vision crop from the same preprocessed pipeline (before border for cleaner crop)
+  const visionCropPath = await createVisionCrop(pipeline, info, scale, imagePath);
+
+  return { outputPath, visionCropPath, inverted, meanLuminance, scale };
+}
+
+async function createVisionCrop(
+  basePipeline: Sharp,
+  info: OutputInfo,
+  scale: number,
+  originalPath: string
+): Promise<string | undefined> {
+  try {
+    const scaledHeight = Math.round(info.height * scale);
+    const cropHeight = Math.ceil(scaledHeight * VISION_CROP_TOP_RATIO);
+    
+    if (cropHeight <= 0) {
+      return undefined;
+    }
+
+    const cropPipeline = basePipeline
+      .clone()
+      .extract({ left: 0, top: 0, width: Math.round(info.width * scale), height: cropHeight })
+      .png();
+
+    const dir = path.dirname(originalPath);
+    const base = path.basename(originalPath, path.extname(originalPath));
+    const visionPath = path.join(dir, `${base}.vision.png`);
+
+    await cropPipeline.toFile(visionPath);
+    return visionPath;
+  } catch (err) {
+    console.warn('[Preprocess] Failed to create Vision crop:', err);
+    return undefined;
+  }
 }
 
 function buildPreprocessedPath(imagePath: string): string {
