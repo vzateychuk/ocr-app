@@ -60,9 +60,15 @@ function createVisionClient(config: VisionClientConfig): VisionClient {
       );
 
       const content = response.choices[0]?.message?.content?.trim();
-      console.debug(`[VisionClient] Response: contentLength=${content?.length ?? 0}, finishReason=${response.choices[0]?.finish_reason}`);
+      const finishReason = response.choices[0]?.finish_reason;
+      console.debug(`[VisionClient] Response: contentLength=${content?.length ?? 0}, finishReason=${finishReason}`);
       if (!content) {
         throw new Error('Empty response from Vision model');
+      }
+      if (finishReason === 'length') {
+        throw new Error(
+          `Vision response was truncated at the ${config.maxTokens}-token limit`
+        );
       }
       return content;
     } catch (err) {
@@ -88,7 +94,7 @@ export function buildVisionClientFromEnv(): VisionClient | null {
   const apiKey = process.env.VISION_API_KEY;
   const model = process.env.VISION_MODEL || 'nvidia/nemotron-3.5-super-vl-120b-a12b';
   const timeoutMs = Number(process.env.VISION_TIMEOUT_MS) || 60000;
-  const maxTokens = Number(process.env.VISION_MAX_TOKENS) || 1024;
+  const maxTokens = Number(process.env.VISION_MAX_TOKENS) || 8192;
   const temperature = Number(process.env.VISION_TEMPERATURE) || 0.1;
   const topP = Number(process.env.VISION_TOP_P) || 0.95;
   const enableThinking = process.env.VISION_ENABLE_THINKING === 'true';

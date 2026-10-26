@@ -4,6 +4,9 @@ import { VisionClient } from './vision-client.js';
 import { runOcr } from '../utils/ocr.js';
 import { preprocessForOcr } from '../utils/preprocess.js';
 import { getIdentifier, sanitizeSlug, EntityId } from '../identifiers/index.js';
+import { getRecognizer, type RecognizedLine } from '../recognizers/index.js';
+import { getSaver } from '../savers/index.js';
+import { formatTimestamp } from '../savers/utils.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ImageCategory } from '../types/jev.types.js';
@@ -16,24 +19,30 @@ export interface UploadContext extends SagaContext {
   /** Cropped top strip for Vision (tab bar + breadcrumbs). */
   visionImagePath?: string;
   originalName: string;
+  /** Preliminary Tesseract text used only by the JEV classifier. */
   extractedText?: string;
+  /** Full text returned by the recognition vision model. */
+  recognizedText?: string;
+  /** Full line-by-line recognition from the vision model. */
+  recognizedLines?: RecognizedLine[];
   category?: ImageCategory;
   confidence?: number;
   probabilities?: Partial<Record<ImageCategory, number>>;
   /** Entity identifier from Vision (for ide_code and future categories). */
   entityId?: EntityId;
   savedImagePath?: string;
+  savedTextPath?: string;
 }
 
 /**
  * Knowledge base layout under KB_BASE_DIR:
  *   tmp/          — temp uploads
  *   raw/images/   — preprocessed screenshots (OCR + Vision input)
- *   raw/docs/     — recognized (OCR) files
+ *   raw/ocr/      — recognized document text (DefaultSaver)
+ *   raw/code/     — recognized IDE code merged by source line (IdeCodeSaver)
  *   wiki/         — processed artifacts
  */
 const KB_RAW_IMAGES_SUBDIR = path.join('raw', 'images');
-const KB_RAW_DOCS_SUBDIR = path.join('raw', 'docs');
 const KB_WIKI_SUBDIR = 'wiki';
 
 function createSteps(
@@ -93,12 +102,46 @@ function createSteps(
     }
   };
 
+  const recognizeStep = async (ctx: UploadContext): Promise<void> => {
+    if (!visionClient) {
+      console.log('[UploadSaga] Vision client not configured — skipping recognize');
+      return;
+    }
+    if (!ctx.category) {
+      console.log('[UploadSaga] Category is missing — skipping recognize');
+      return;
+    }
+
+    const imagePath = ctx.ocrImagePath ?? ctx.filePath;
+    const recognizer = getRecognizer(ctx.category);
+
+    try {
+      // Full preprocessed image, not the top crop used by identify.
+      const imageBuffer = await fs.readFile(imagePath);
+      const result = await recognizer.recognize(imageBuffer, visionClient);
+      if (!result) {
+        throw new Error(
+          `Vision recognition returned no usable result for category ${ctx.category}`
+        );
+      }
+
+      ctx.recognizedText = result.text;
+      ctx.recognizedLines = result.lines;
+      console.log(
+        `[UploadSaga] Recognized ${result.text.length} chars, ${result.lines.length} lines for ${ctx.category}`
+      );
+    } catch (err) {
+      console.error(
+        '[UploadSaga] Recognize step failed:',
+        err instanceof Error ? err.message : err
+      );
+      throw err;
+    }
+  };
+
   const saveStep = async (ctx: UploadContext): Promise<void> => {
     const now = new Date();
-    const timestamp = now.toISOString()
-      .replace(/T/, '_')
-      .replace(/\..+/, '')
-      .replace(/:/g, '-');
+    const timestamp = formatTimestamp(now);
 
     const sourcePath = ctx.ocrImagePath ?? ctx.filePath;
 
@@ -112,13 +155,32 @@ function createSteps(
 
     const targetDir = path.join(kbBaseDir, KB_RAW_IMAGES_SUBDIR);
     await fs.mkdir(targetDir, { recursive: true });
-    await fs.mkdir(path.join(kbBaseDir, KB_RAW_DOCS_SUBDIR), { recursive: true });
     await fs.mkdir(path.join(kbBaseDir, KB_WIKI_SUBDIR), { recursive: true });
 
+    // Image persistence is independent of the category-specific saver.
     const targetPath = path.join(targetDir, fileName);
     await fs.copyFile(sourcePath, targetPath);
     ctx.savedImagePath = targetPath;
     console.log(`[UploadSaga] Saved preprocessed raw image: ${targetPath}`);
+
+    const category = ctx.category ?? 'unknown';
+    const saver = getSaver(category);
+    const savedTextPath = await saver.save({
+      kbBaseDir,
+      category,
+      originalName: ctx.originalName,
+      // Only the full Vision recognition is handed to the saver. The Tesseract
+      // text in ctx.extractedText is intentionally not used here.
+      recognizedText: ctx.recognizedText,
+      lines: ctx.recognizedLines,
+      entityId: ctx.entityId,
+      timestamp: now,
+    });
+
+    if (savedTextPath) {
+      ctx.savedTextPath = savedTextPath;
+      console.log(`[UploadSaga] Saved recognized content: ${savedTextPath}`);
+    }
   };
 
   const cleanupStep = async (ctx: UploadContext): Promise<void> => {
@@ -142,6 +204,7 @@ function createSteps(
     ocrStep,
     classifyStep,
     identifyStep,
+    recognizeStep,
     saveStep,
     cleanupStep,
     postprocessStep,
@@ -158,6 +221,7 @@ export function createUploadSaga(
     ocrStep,
     classifyStep,
     identifyStep,
+    recognizeStep,
     saveStep,
     cleanupStep,
     postprocessStep,
@@ -170,6 +234,7 @@ export function createUploadSaga(
       { name: 'ocr', execute: ocrStep },
       { name: 'classify', execute: classifyStep },
       { name: 'identify', execute: identifyStep },
+      { name: 'recognize', execute: recognizeStep },
       { name: 'save', execute: saveStep },
       { name: 'cleanup', execute: cleanupStep },
       { name: 'postprocess', execute: postprocessStep },

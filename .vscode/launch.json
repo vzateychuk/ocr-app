@@ -8,12 +8,10 @@
       "cwd": "${workspaceFolder}/apps/back",
       "program": "${workspaceFolder}/apps/back/src/index.ts",
       "runtimeArgs": [
-        "--watch",
         "--import",
         "tsx"
       ],
       "sourceMaps": true,
-      "restart": true,
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
       "skipFiles": [
