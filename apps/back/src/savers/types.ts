@@ -19,6 +19,8 @@ export interface SaveRecognizedContentInput {
 export interface Saver {
   /** Category served by a specialized saver. DefaultSaver has no category. */
   readonly category?: ImageCategory;
+  /** Builds the image filename for this category's naming rules. */
+  getImageFileName(input: SaveRecognizedContentInput): string;
   /** Returns the saved path, or undefined when there is nothing to save. */
   save(input: SaveRecognizedContentInput): Promise<string | undefined>;
 }

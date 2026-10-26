@@ -1,11 +1,19 @@
 import path from 'node:path';
 import { sanitizeSlug } from '../identifiers/index.js';
 import type { Saver, SaveRecognizedContentInput } from './types.js';
-import { formatTimestamp, writeUniqueFile } from './utils.js';
+import {
+  formatTimestamp,
+  getDefaultImageFileName,
+  writeUniqueFile,
+} from './utils.js';
 
 export const RAW_OCR_SUBDIR = path.join('raw', 'ocr');
 
 export class DefaultSaver implements Saver {
+  getImageFileName(input: SaveRecognizedContentInput): string {
+    return getDefaultImageFileName(input);
+  }
+
   async save(input: SaveRecognizedContentInput): Promise<string | undefined> {
     const text = input.recognizedText ?? input.extractedText;
     if (text === undefined) {

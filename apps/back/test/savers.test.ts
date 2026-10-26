@@ -72,6 +72,36 @@ test('selects IdeCodeSaver for ide_code and DefaultSaver for other categories', 
   assert.equal(getSaver('unknown'), defaultSaver);
 });
 
+test('DefaultSaver owns the timestamped image filename rule', () => {
+  const saver = new DefaultSaver();
+
+  assert.equal(
+    saver.getImageFileName(defaultInput('/tmp/kb')),
+    '2026-10-26_12-34-56_jira_issue.png'
+  );
+  assert.equal(
+    saver.getImageFileName(
+      defaultInput('/tmp/kb', {
+        entityId: { canonicalId: 'src/common/file.py', components: {} },
+      })
+    ),
+    '2026-10-26_12-34-56_src_common_file.py.png'
+  );
+});
+
+test('IdeCodeSaver owns the entity and recognized range image filename rule', () => {
+  const saver = new IdeCodeSaver();
+  const input = ideInput('/tmp/kb', [
+    { lineNumber: 244, text: 'first' },
+    { lineNumber: 363, text: 'last' },
+  ]);
+
+  assert.equal(
+    saver.getImageFileName(input),
+    'src_common_utils_maven_dependency_list.py_L245-L364.png'
+  );
+});
+
 test('DefaultSaver writes Markdown under raw/ocr without overwriting', async () => {
   await withTempDir(async (directory) => {
     const saver = new DefaultSaver();

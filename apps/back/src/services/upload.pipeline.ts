@@ -3,10 +3,12 @@ import { JevService } from './jev.service.js';
 import { VisionClient } from './vision-client.js';
 import { runOcr } from '../utils/ocr.js';
 import { preprocessForOcr } from '../utils/preprocess.js';
-import { getIdentifier, sanitizeSlug, EntityId } from '../identifiers/index.js';
-import { getRecognizer, type RecognizedLine } from '../recognizers/index.js';
+import { getIdentifier, EntityId } from '../identifiers/index.js';
+import {
+  getRecognizer,
+  type RecognizedLine,
+} from '../recognizers/index.js';
 import { getSaver } from '../savers/index.js';
-import { formatTimestamp } from '../savers/utils.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ImageCategory } from '../types/jev.types.js';
@@ -44,6 +46,27 @@ export interface UploadContext extends SagaContext {
  */
 const KB_RAW_IMAGES_SUBDIR = path.join('raw', 'images');
 const KB_WIKI_SUBDIR = 'wiki';
+
+async function cleanupTempFiles(ctx: UploadContext): Promise<void> {
+  const tempPaths = new Set([
+    ctx.filePath,
+    ctx.ocrImagePath,
+    ctx.visionImagePath,
+  ]);
+
+  for (const tempPath of tempPaths) {
+    if (!tempPath) continue;
+    try {
+      await fs.unlink(tempPath);
+      console.log(`[UploadSaga] Cleaned up temp file: ${tempPath}`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+      console.warn(`[UploadSaga] Failed to cleanup temp file ${tempPath}:`, err);
+    }
+  }
+}
 
 function createSteps(
   jevService: JevService,
@@ -141,31 +164,9 @@ function createSteps(
 
   const saveStep = async (ctx: UploadContext): Promise<void> => {
     const now = new Date();
-    const timestamp = formatTimestamp(now);
-
-    const sourcePath = ctx.ocrImagePath ?? ctx.filePath;
-
-    let slug: string;
-    if (ctx.entityId?.canonicalId) {
-      slug = `${timestamp}_${sanitizeSlug(ctx.entityId.canonicalId)}`;
-    } else {
-      slug = `${timestamp}_${ctx.category ?? 'unknown'}`;
-    }
-    const fileName = `${slug}.png`;
-
-    const targetDir = path.join(kbBaseDir, KB_RAW_IMAGES_SUBDIR);
-    await fs.mkdir(targetDir, { recursive: true });
-    await fs.mkdir(path.join(kbBaseDir, KB_WIKI_SUBDIR), { recursive: true });
-
-    // Image persistence is independent of the category-specific saver.
-    const targetPath = path.join(targetDir, fileName);
-    await fs.copyFile(sourcePath, targetPath);
-    ctx.savedImagePath = targetPath;
-    console.log(`[UploadSaga] Saved preprocessed raw image: ${targetPath}`);
-
     const category = ctx.category ?? 'unknown';
     const saver = getSaver(category);
-    const savedTextPath = await saver.save({
+    const saveInput = {
       kbBaseDir,
       category,
       originalName: ctx.originalName,
@@ -175,7 +176,23 @@ function createSteps(
       lines: ctx.recognizedLines,
       entityId: ctx.entityId,
       timestamp: now,
-    });
+    };
+    const fileName = saver.getImageFileName(saveInput);
+    const sourcePath = ctx.ocrImagePath ?? ctx.filePath;
+
+    const targetDir = path.join(kbBaseDir, KB_RAW_IMAGES_SUBDIR);
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.mkdir(path.join(kbBaseDir, KB_WIKI_SUBDIR), { recursive: true });
+
+    // Image persistence is independent of the category-specific saver.
+    const targetPath = path.join(targetDir, fileName);
+    // Code screenshots are keyed by entity and visible line range; the same
+    // entity/range intentionally replaces the previously saved screenshot.
+    await fs.copyFile(sourcePath, targetPath);
+    ctx.savedImagePath = targetPath;
+    console.log(`[UploadSaga] Saved preprocessed raw image: ${targetPath}`);
+
+    const savedTextPath = await saver.save(saveInput);
 
     if (savedTextPath) {
       ctx.savedTextPath = savedTextPath;
@@ -183,17 +200,7 @@ function createSteps(
     }
   };
 
-  const cleanupStep = async (ctx: UploadContext): Promise<void> => {
-    for (const tempPath of [ctx.filePath, ctx.ocrImagePath, ctx.visionImagePath]) {
-      if (!tempPath) continue;
-      try {
-        await fs.unlink(tempPath);
-        console.log(`[UploadSaga] Cleaned up temp file: ${tempPath}`);
-      } catch (err) {
-        console.warn(`[UploadSaga] Failed to cleanup temp file ${tempPath}:`, err);
-      }
-    }
-  };
+  const cleanupStep = cleanupTempFiles;
 
   const postprocessStep = async (ctx: UploadContext): Promise<void> => {
     // Stub for post-processing
@@ -241,6 +248,7 @@ export function createUploadSaga(
     ],
     onError: async (ctx, err, stepName) => {
       console.error(`[UploadSaga] Failed at step '${stepName}':`, err);
+      await cleanupTempFiles(ctx);
     },
     onComplete: async (ctx) => {
       console.log(`[UploadSaga] Completed: ${ctx.originalName} -> ${ctx.category}${ctx.entityId ? ` (entityId: ${ctx.entityId.canonicalId})` : ''}`);

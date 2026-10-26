@@ -93,6 +93,39 @@ test('runs recognize after identify and before save', () => {
   );
 });
 
+test('cleans temporary upload images after pipeline errors without deleting persisted images', async () => {
+  await withTempDir(async (directory) => {
+    const filePath = path.join(directory, 'tmp', 'upload.png');
+    const ocrImagePath = path.join(directory, 'tmp', 'upload.ocr.png');
+    const visionImagePath = path.join(directory, 'tmp', 'upload.vision.png');
+    const savedImagePath = path.join(
+      directory,
+      'raw',
+      'images',
+      'persisted.png'
+    );
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.mkdir(path.dirname(savedImagePath), { recursive: true });
+    await Promise.all(
+      [filePath, ocrImagePath, visionImagePath, savedImagePath].map((file) =>
+        fs.writeFile(file, 'image')
+      )
+    );
+
+    const saga = createUploadSaga(fakeJev('ide_code'), null, directory);
+    const ctx = createContext(filePath);
+    ctx.ocrImagePath = ocrImagePath;
+    ctx.visionImagePath = visionImagePath;
+
+    await saga.onError?.(ctx, new Error('recognition failed'), 'recognize');
+
+    for (const tempPath of [filePath, ocrImagePath, visionImagePath]) {
+      await assert.rejects(fs.access(tempPath), { code: 'ENOENT' });
+    }
+    await fs.access(savedImagePath);
+  });
+});
+
 test('identify gets the top crop, recognize gets the full preprocessed image', async () => {
   await withTempDir(async (directory) => {
     const inputPath = path.join(directory, 'source.png');
@@ -201,6 +234,10 @@ test('save always persists the image and selects the saver by category', async (
     await getStep(saga, 'save').execute(ctx);
 
     assert.ok(ctx.savedImagePath);
+    assert.equal(
+      path.basename(ctx.savedImagePath),
+      'src_common_utils_maven_dependency_list.py_L29-L30.png'
+    );
     assert.ok(ctx.savedImagePath.startsWith(path.join(directory, 'raw', 'images')));
     assert.equal(await fs.readFile(ctx.savedImagePath, 'utf8'), 'image-bytes');
     assert.equal(
@@ -220,6 +257,52 @@ test('save always persists the image and selects the saver by category', async (
       '\n'.repeat(28) + 'print("vision")\n\n'
     );
     assert.deepEqual(await listFiles(path.join(directory, 'raw', 'ocr')), []);
+  });
+});
+
+test('ide_code image names use the recognized range and overwrite duplicate ranges', async () => {
+  await withTempDir(async (directory) => {
+    const firstImagePath = path.join(directory, 'first.png');
+    const secondImagePath = path.join(directory, 'second.png');
+    await fs.writeFile(firstImagePath, 'first image');
+    await fs.writeFile(secondImagePath, 'replacement image');
+
+    const saga = createUploadSaga(fakeJev('ide_code'), null, directory);
+    const firstContext = createContext(firstImagePath);
+    firstContext.ocrImagePath = firstImagePath;
+    firstContext.category = 'ide_code';
+    firstContext.entityId = {
+      canonicalId: 'src/common/models.py',
+      components: {},
+    };
+    firstContext.recognizedLines = [
+      { lineNumber: 244, text: 'first' },
+      { lineNumber: 363, text: 'last' },
+    ];
+
+    await getStep(saga, 'save').execute(firstContext);
+
+    const secondContext = createContext(secondImagePath);
+    secondContext.ocrImagePath = secondImagePath;
+    secondContext.category = 'ide_code';
+    secondContext.entityId = firstContext.entityId;
+    secondContext.recognizedLines = firstContext.recognizedLines;
+
+    await getStep(saga, 'save').execute(secondContext);
+
+    assert.equal(
+      path.basename(firstContext.savedImagePath!),
+      'src_common_models.py_L245-L364.png'
+    );
+    assert.equal(secondContext.savedImagePath, firstContext.savedImagePath);
+    assert.equal(
+      await fs.readFile(secondContext.savedImagePath!, 'utf8'),
+      'replacement image'
+    );
+    assert.deepEqual(
+      await listFiles(path.join(directory, 'raw', 'images')),
+      ['src_common_models.py_L245-L364.png']
+    );
   });
 });
 

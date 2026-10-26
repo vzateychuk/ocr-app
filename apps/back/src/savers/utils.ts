@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { sanitizeSlug } from '../identifiers/index.js';
+import type { SaveRecognizedContentInput } from './types.js';
 
 export function formatTimestamp(date: Date): string {
   return date
@@ -7,6 +9,17 @@ export function formatTimestamp(date: Date): string {
     .replace(/T/, '_')
     .replace(/\..+/, '')
     .replace(/:/g, '-');
+}
+
+export function getDefaultImageFileName(
+  input: SaveRecognizedContentInput
+): string {
+  const timestamp = formatTimestamp(input.timestamp);
+  const canonicalId = input.entityId?.canonicalId;
+  const slug = canonicalId
+    ? sanitizeSlug(canonicalId)
+    : input.category;
+  return `${timestamp}_${slug}.png`;
 }
 
 /**

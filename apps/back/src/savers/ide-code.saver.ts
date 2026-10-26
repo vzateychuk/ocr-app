@@ -4,7 +4,9 @@ import {
   isNumberedLine,
   type NumberedRecognizedLine,
 } from '../recognizers/types.js';
+import { sanitizeSlug } from '../identifiers/index.js';
 import type { Saver, SaveRecognizedContentInput } from './types.js';
+import { getDefaultImageFileName } from './utils.js';
 
 export const RAW_CODE_SUBDIR = path.join('raw', 'code');
 
@@ -84,6 +86,19 @@ export function mergeCodeLines(
 
 export class IdeCodeSaver implements Saver {
   readonly category = 'ide_code' as const;
+
+  getImageFileName(input: SaveRecognizedContentInput): string {
+    const canonicalId = input.entityId?.canonicalId;
+    const lines = (input.lines ?? []).filter(isNumberedLine);
+    if (!canonicalId || lines.length === 0) {
+      return getDefaultImageFileName(input);
+    }
+
+    const lineNumbers = lines.map((line) => line.lineNumber + 1);
+    const firstLine = Math.min(...lineNumbers);
+    const lastLine = Math.max(...lineNumbers);
+    return `${sanitizeSlug(canonicalId)}_L${firstLine}-L${lastLine}.png`;
+  }
 
   async save(input: SaveRecognizedContentInput): Promise<string | undefined> {
     const canonicalId = input.entityId?.canonicalId;
