@@ -10,6 +10,31 @@ import { getDefaultImageFileName } from './utils.js';
 
 export const RAW_CODE_SUBDIR = path.join('raw', 'code');
 
+const codeSaveQueues = new Map<string, Promise<void>>();
+
+async function withCodeSaveLock<T>(
+  targetPath: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = codeSaveQueues.get(targetPath) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  codeSaveQueues.set(targetPath, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (codeSaveQueues.get(targetPath) === queued) {
+      codeSaveQueues.delete(targetPath);
+    }
+  }
+}
+
 function resolveCodePath(kbBaseDir: string, canonicalId: string): string {
   if (!canonicalId || canonicalId.includes('\0')) {
     throw new Error('Invalid canonicalId: empty or contains NUL byte');
@@ -62,22 +87,20 @@ export function mergeCodeLines(
     }
   }
 
-  let maxLineNumber = -1;
+  let maxLineNumber = 0;
   for (const line of lines) {
-    if (!Number.isInteger(line.lineNumber) || line.lineNumber < 0) {
+    if (!Number.isInteger(line.lineNumber) || line.lineNumber < 1) {
       throw new Error(`Invalid recognized line number: ${line.lineNumber}`);
     }
     maxLineNumber = Math.max(maxLineNumber, line.lineNumber);
   }
 
-  while (existingLines.length <= maxLineNumber) {
+  while (existingLines.length < maxLineNumber) {
     existingLines.push('');
   }
 
   for (const line of lines) {
-    // lineNumber is zero-based, so the array index is the source line itself.
-    // No shifting is performed: missing lines are padded with empty strings.
-    existingLines[line.lineNumber] = line.text;
+    existingLines[line.lineNumber - 1] = line.text;
   }
 
   const trailingNewline = existingContent === null || hadTrailingNewline;
@@ -94,7 +117,7 @@ export class IdeCodeSaver implements Saver {
       return getDefaultImageFileName(input);
     }
 
-    const lineNumbers = lines.map((line) => line.lineNumber + 1);
+    const lineNumbers = lines.map((line) => line.lineNumber);
     const firstLine = Math.min(...lineNumbers);
     const lastLine = Math.max(...lineNumbers);
     return `${sanitizeSlug(canonicalId)}_L${firstLine}-L${lastLine}.png`;
@@ -130,18 +153,20 @@ export class IdeCodeSaver implements Saver {
 
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
 
-    let existingContent: string | null = null;
-    try {
-      existingContent = await fs.readFile(targetPath, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
+    return withCodeSaveLock(targetPath, async () => {
+      let existingContent: string | null = null;
+      try {
+        existingContent = await fs.readFile(targetPath, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
       }
-    }
 
-    const mergedContent = mergeCodeLines(existingContent, lines);
-    await fs.writeFile(targetPath, mergedContent, 'utf8');
+      const mergedContent = mergeCodeLines(existingContent, lines);
+      await fs.writeFile(targetPath, mergedContent, 'utf8');
 
-    return targetPath;
+      return targetPath;
+    });
   }
 }

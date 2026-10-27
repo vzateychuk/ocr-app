@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 import { createUploadSaga, type UploadContext } from '../src/services/upload.pipeline.js';
 import type { JevService } from '../src/services/jev.service.js';
 import type { VisionClient } from '../src/services/vision-client.js';
@@ -85,6 +86,7 @@ test('runs recognize after identify and before save', () => {
       'ocr',
       'classify',
       'identify',
+      'crop-editor',
       'recognize',
       'save',
       'cleanup',
@@ -98,6 +100,7 @@ test('cleans temporary upload images after pipeline errors without deleting pers
     const filePath = path.join(directory, 'tmp', 'upload.png');
     const ocrImagePath = path.join(directory, 'tmp', 'upload.ocr.png');
     const visionImagePath = path.join(directory, 'tmp', 'upload.vision.png');
+    const editorCropPath = path.join(directory, 'tmp', 'upload.editor.png');
     const savedImagePath = path.join(
       directory,
       'raw',
@@ -107,26 +110,36 @@ test('cleans temporary upload images after pipeline errors without deleting pers
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.mkdir(path.dirname(savedImagePath), { recursive: true });
     await Promise.all(
-      [filePath, ocrImagePath, visionImagePath, savedImagePath].map((file) =>
-        fs.writeFile(file, 'image')
-      )
+      [
+        filePath,
+        ocrImagePath,
+        visionImagePath,
+        editorCropPath,
+        savedImagePath,
+      ].map((file) => fs.writeFile(file, 'image'))
     );
 
     const saga = createUploadSaga(fakeJev('ide_code'), null, directory);
     const ctx = createContext(filePath);
     ctx.ocrImagePath = ocrImagePath;
     ctx.visionImagePath = visionImagePath;
+    ctx.editorCropPath = editorCropPath;
 
     await saga.onError?.(ctx, new Error('recognition failed'), 'recognize');
 
-    for (const tempPath of [filePath, ocrImagePath, visionImagePath]) {
+    for (const tempPath of [
+      filePath,
+      ocrImagePath,
+      visionImagePath,
+      editorCropPath,
+    ]) {
       await assert.rejects(fs.access(tempPath), { code: 'ENOENT' });
     }
     await fs.access(savedImagePath);
   });
 });
 
-test('identify gets the top crop, recognize gets the full preprocessed image', async () => {
+test('identify gets the top crop, recognize and save use the editor crop', async () => {
   await withTempDir(async (directory) => {
     const inputPath = path.join(directory, 'source.png');
     await fs.copyFile(path.join(FIXTURES, 'code-13.png'), inputPath);
@@ -134,7 +147,7 @@ test('identify gets the top crop, recognize gets the full preprocessed image', a
     const calls: Array<{ imageBuffer: Buffer; prompt: string }> = [];
     const vision = fakeVision(async (input) => {
       calls.push({ imageBuffer: Buffer.from(input.imageBuffer), prompt: input.prompt });
-      if (input.prompt.includes('Верни каждую видимую строку кода')) {
+      if (input.prompt.includes('Распознай весь видимый код')) {
         return 'L00029|I00|first recognized line\nL00030|I01|second line';
       }
       return JSON.stringify({
@@ -149,21 +162,32 @@ test('identify gets the top crop, recognize gets the full preprocessed image', a
     await getStep(saga, 'preprocess').execute(ctx);
     ctx.category = 'ide_code';
     await getStep(saga, 'identify').execute(ctx);
+    await getStep(saga, 'crop-editor').execute(ctx);
     await getStep(saga, 'recognize').execute(ctx);
+    await getStep(saga, 'save').execute(ctx);
 
     assert.ok(ctx.visionImagePath);
     assert.ok(ctx.ocrImagePath);
+    assert.ok(ctx.editorCropPath);
+    const originalMetadata = await sharp(inputPath).metadata();
+    const editorCropMetadata = await sharp(ctx.editorCropPath).metadata();
+    assert.ok(originalMetadata.width);
+    assert.ok(originalMetadata.height);
+    assert.ok(editorCropMetadata.width);
+    assert.ok(editorCropMetadata.height);
+    assert.ok(editorCropMetadata.width <= originalMetadata.width);
+    assert.ok(editorCropMetadata.height <= originalMetadata.height);
     assert.equal(ctx.entityId?.canonicalId, 'src/app/demo.py');
     assert.deepEqual(ctx.recognizedLines, [
-      { lineNumber: 28, text: 'first recognized line' },
-      { lineNumber: 29, text: '    second line' },
+      { lineNumber: 29, text: 'first recognized line' },
+      { lineNumber: 30, text: '    second line' },
     ]);
 
     const identifyCall = calls.find((call) =>
       call.prompt.includes('АКТИВНОЙ вкладке')
     );
     const recognizeCall = calls.find((call) =>
-      call.prompt.includes('Верни каждую видимую строку кода')
+      call.prompt.includes('Распознай весь видимый код')
     );
 
     assert.ok(identifyCall);
@@ -172,9 +196,22 @@ test('identify gets the top crop, recognize gets the full preprocessed image', a
       identifyCall.imageBuffer.equals(await fs.readFile(ctx.visionImagePath))
     );
     assert.ok(
-      recognizeCall.imageBuffer.equals(await fs.readFile(ctx.ocrImagePath))
+      recognizeCall.imageBuffer.equals(await fs.readFile(ctx.editorCropPath))
     );
-    assert.ok(recognizeCall.imageBuffer.length > identifyCall.imageBuffer.length);
+    assert.ok(
+      recognizeCall.imageBuffer.length > 0 &&
+        recognizeCall.imageBuffer.length < (await fs.stat(ctx.ocrImagePath)).size
+    );
+    assert.ok(ctx.savedImagePath);
+    assert.deepEqual(
+      await fs.readFile(ctx.savedImagePath),
+      await fs.readFile(ctx.editorCropPath)
+    );
+    await getStep(saga, 'cleanup').execute(ctx);
+    await assert.rejects(fs.access(ctx.editorCropPath), { code: 'ENOENT' });
+    await fs.access(ctx.savedImagePath);
+    assert.ok(ctx.ocrImagePath);
+    await assert.rejects(fs.access(ctx.ocrImagePath), { code: 'ENOENT' });
   });
 });
 
@@ -227,8 +264,8 @@ test('save always persists the image and selects the saver by category', async (
     };
     ctx.recognizedText = 'ignored full text';
     ctx.recognizedLines = [
-      { lineNumber: 28, text: 'print("vision")' },
-      { lineNumber: 29, text: '' },
+      { lineNumber: 29, text: 'print("vision")' },
+      { lineNumber: 30, text: '' },
     ];
 
     await getStep(saga, 'save').execute(ctx);
@@ -276,8 +313,8 @@ test('ide_code image names use the recognized range and overwrite duplicate rang
       components: {},
     };
     firstContext.recognizedLines = [
-      { lineNumber: 244, text: 'first' },
-      { lineNumber: 363, text: 'last' },
+      { lineNumber: 245, text: 'first' },
+      { lineNumber: 364, text: 'last' },
     ];
 
     await getStep(saga, 'save').execute(firstContext);
@@ -316,7 +353,7 @@ test('ide_code without canonicalId still saves the image but no recognized conte
     ctx.ocrImagePath = sourcePath;
     ctx.category = 'ide_code';
     ctx.recognizedText = 'should not be written anywhere';
-    ctx.recognizedLines = [{ lineNumber: 0, text: 'code' }];
+    ctx.recognizedLines = [{ lineNumber: 1, text: 'code' }];
 
     await getStep(saga, 'save').execute(ctx);
 

@@ -3,6 +3,7 @@ import { JevService } from './jev.service.js';
 import { VisionClient } from './vision-client.js';
 import { runOcr } from '../utils/ocr.js';
 import { preprocessForOcr } from '../utils/preprocess.js';
+import { createEditorCrop } from '../utils/editor-crop.js';
 import { getIdentifier, EntityId } from '../identifiers/index.js';
 import {
   getRecognizer,
@@ -16,10 +17,12 @@ import type { ImageCategory } from '../types/jev.types.js';
 export interface UploadContext extends SagaContext {
   /** Original upload in tmp (deleted after save). */
   filePath: string;
-  /** Preprocessed image: used by OCR, then persisted to raw/images. */
+  /** Preprocessed and upscaled image used for Tesseract OCR. */
   ocrImagePath?: string;
   /** Cropped top strip for Vision (tab bar + breadcrumbs). */
   visionImagePath?: string;
+  /** Editor-only crop sent to Vision and copied to raw/images. */
+  editorCropPath?: string;
   originalName: string;
   /** Preliminary Tesseract text used only by the JEV classifier. */
   extractedText?: string;
@@ -39,7 +42,7 @@ export interface UploadContext extends SagaContext {
 /**
  * Knowledge base layout under KB_BASE_DIR:
  *   tmp/          — temp uploads
- *   raw/images/   — preprocessed screenshots (OCR + Vision input)
+ *   raw/images/   — editor crops for IDE code, preprocessed screenshots otherwise
  *   raw/ocr/      — recognized document text (DefaultSaver)
  *   raw/code/     — recognized IDE code merged by source line (IdeCodeSaver)
  *   wiki/         — processed artifacts
@@ -52,6 +55,7 @@ async function cleanupTempFiles(ctx: UploadContext): Promise<void> {
     ctx.filePath,
     ctx.ocrImagePath,
     ctx.visionImagePath,
+    ctx.editorCropPath,
   ]);
 
   for (const tempPath of tempPaths) {
@@ -125,6 +129,23 @@ function createSteps(
     }
   };
 
+  const cropEditorStep = async (ctx: UploadContext): Promise<void> => {
+    if (ctx.category !== 'ide_code') {
+      return;
+    }
+
+    const detectionImagePath = ctx.ocrImagePath ?? ctx.filePath;
+    ctx.editorCropPath = await createEditorCrop(
+      detectionImagePath,
+      ctx.filePath
+    );
+    if (!ctx.editorCropPath) {
+      console.warn(
+        '[UploadSaga] Editor crop unavailable; using the full preprocessed image for recognition and persistence'
+      );
+    }
+  };
+
   const recognizeStep = async (ctx: UploadContext): Promise<void> => {
     if (!visionClient) {
       console.log('[UploadSaga] Vision client not configured — skipping recognize');
@@ -135,11 +156,12 @@ function createSteps(
       return;
     }
 
-    const imagePath = ctx.ocrImagePath ?? ctx.filePath;
+    const imagePath =
+      ctx.editorCropPath ?? ctx.ocrImagePath ?? ctx.filePath;
     const recognizer = getRecognizer(ctx.category);
 
     try {
-      // Full preprocessed image, not the top crop used by identify.
+      // IDE code uses the editor crop; other categories use the preprocessed image.
       const imageBuffer = await fs.readFile(imagePath);
       const result = await recognizer.recognize(imageBuffer, visionClient);
       if (!result) {
@@ -178,7 +200,8 @@ function createSteps(
       timestamp: now,
     };
     const fileName = saver.getImageFileName(saveInput);
-    const sourcePath = ctx.ocrImagePath ?? ctx.filePath;
+    const sourcePath =
+      ctx.editorCropPath ?? ctx.ocrImagePath ?? ctx.filePath;
 
     const targetDir = path.join(kbBaseDir, KB_RAW_IMAGES_SUBDIR);
     await fs.mkdir(targetDir, { recursive: true });
@@ -211,6 +234,7 @@ function createSteps(
     ocrStep,
     classifyStep,
     identifyStep,
+    cropEditorStep,
     recognizeStep,
     saveStep,
     cleanupStep,
@@ -228,6 +252,7 @@ export function createUploadSaga(
     ocrStep,
     classifyStep,
     identifyStep,
+    cropEditorStep,
     recognizeStep,
     saveStep,
     cleanupStep,
@@ -241,6 +266,7 @@ export function createUploadSaga(
       { name: 'ocr', execute: ocrStep },
       { name: 'classify', execute: classifyStep },
       { name: 'identify', execute: identifyStep },
+      { name: 'crop-editor', execute: cropEditorStep },
       { name: 'recognize', execute: recognizeStep },
       { name: 'save', execute: saveStep },
       { name: 'cleanup', execute: cleanupStep },

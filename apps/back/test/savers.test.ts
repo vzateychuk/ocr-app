@@ -92,8 +92,8 @@ test('DefaultSaver owns the timestamped image filename rule', () => {
 test('IdeCodeSaver owns the entity and recognized range image filename rule', () => {
   const saver = new IdeCodeSaver();
   const input = ideInput('/tmp/kb', [
-    { lineNumber: 244, text: 'first' },
-    { lineNumber: 363, text: 'last' },
+    { lineNumber: 245, text: 'first' },
+    { lineNumber: 364, text: 'last' },
   ]);
 
   assert.equal(
@@ -143,7 +143,7 @@ test('IdeCodeSaver creates nested directories from canonicalId', async () => {
   await withTempDir(async (directory) => {
     const saver = new IdeCodeSaver();
     const savedPath = await saver.save(
-      ideInput(directory, [{ lineNumber: 0, text: 'print("hello")' }])
+      ideInput(directory, [{ lineNumber: 1, text: 'print("hello")' }])
     );
 
     assert.ok(savedPath);
@@ -171,8 +171,8 @@ test('IdeCodeSaver merges overlapping ranges and preserves lines outside them', 
     const oldLines: RecognizedLine[] = Array.from(
       { length: 32 },
       (_, index) => ({
-        lineNumber: index,
-        text: `old ${index}`,
+        lineNumber: index + 1,
+        text: `old ${index + 1}`,
       })
     );
     await saver.save(ideInput(directory, oldLines));
@@ -180,8 +180,8 @@ test('IdeCodeSaver merges overlapping ranges and preserves lines outside them', 
     const newLines: RecognizedLine[] = Array.from(
       { length: 32 },
       (_, index) => ({
-        lineNumber: index + 29,
-        text: `new ${index + 29}`,
+        lineNumber: index + 30,
+        text: `new ${index + 30}`,
       })
     );
     const savedPath = await saver.save(ideInput(directory, newLines));
@@ -191,31 +191,77 @@ test('IdeCodeSaver merges overlapping ranges and preserves lines outside them', 
 
     assert.equal(lines.length, 61);
     for (let index = 0; index <= 28; index += 1) {
-      assert.equal(lines[index], `old ${index}`);
+      assert.equal(lines[index], `old ${index + 1}`);
     }
     for (let index = 29; index <= 60; index += 1) {
-      assert.equal(lines[index], `new ${index}`);
+      assert.equal(lines[index], `new ${index + 1}`);
     }
   });
 });
 
-test('IdeCodeSaver uses zero-based source line numbers without shifting', async () => {
+test('IdeCodeSaver serializes concurrent saves for the same file', async () => {
+  await withTempDir(async (directory) => {
+    const saver = new IdeCodeSaver();
+    await Promise.all([
+      saver.save(
+        ideInput(
+          directory,
+          Array.from({ length: 63 }, (_, index) => ({
+            lineNumber: index + 1,
+            text: `first ${index + 1}`,
+          }))
+        )
+      ),
+      saver.save(
+        ideInput(
+          directory,
+          Array.from({ length: 61 }, (_, index) => ({
+            lineNumber: index + 63,
+            text: `second ${index + 63}`,
+          }))
+        )
+      ),
+    ]);
+
+    const savedPath = path.join(
+      directory,
+      'raw',
+      'code',
+      'src',
+      'common',
+      'utils',
+      'maven',
+      'dependency_list.py'
+    );
+    const lines = splitFileContent(await fs.readFile(savedPath, 'utf8'));
+
+    assert.equal(lines.length, 123);
+    for (let lineNumber = 1; lineNumber <= 62; lineNumber += 1) {
+      assert.equal(lines[lineNumber - 1], `first ${lineNumber}`);
+    }
+    for (let lineNumber = 63; lineNumber <= 123; lineNumber += 1) {
+      assert.equal(lines[lineNumber - 1], `second ${lineNumber}`);
+    }
+  });
+});
+
+test('IdeCodeSaver maps 1-based source line numbers to file lines', async () => {
   await withTempDir(async (directory) => {
     const saver = new IdeCodeSaver();
     const existingLines: RecognizedLine[] = Array.from(
       { length: 10 },
       (_, index) => ({
-        lineNumber: index,
-        text: `old ${index}`,
+        lineNumber: index + 1,
+        text: `old ${index + 1}`,
       })
     );
     await saver.save(ideInput(directory, existingLines));
 
     const savedPath = await saver.save(
       ideInput(directory, [
-        { lineNumber: 3, text: 'new four' },
-        { lineNumber: 4, text: '' },
-        { lineNumber: 5, text: '    new six' },
+        { lineNumber: 4, text: 'new four' },
+        { lineNumber: 5, text: '' },
+        { lineNumber: 6, text: '    new six' },
       ])
     );
 
@@ -223,16 +269,16 @@ test('IdeCodeSaver uses zero-based source line numbers without shifting', async 
     const lines = splitFileContent(await fs.readFile(savedPath, 'utf8'));
 
     assert.deepEqual(lines, [
-      'old 0',
       'old 1',
       'old 2',
+      'old 3',
       'new four',
       '',
       '    new six',
-      'old 6',
       'old 7',
       'old 8',
       'old 9',
+      'old 10',
     ]);
   });
 });
@@ -242,18 +288,18 @@ test('IdeCodeSaver preserves blank lines, whitespace and exact text', async () =
     const saver = new IdeCodeSaver();
     const savedPath = await saver.save(
       ideInput(directory, [
-        { lineNumber: 0, text: 'line zero' },
-        { lineNumber: 1, text: '' },
-        { lineNumber: 2, text: '    x  =  1' },
-        { lineNumber: 3, text: '   ' },
-        { lineNumber: 5, text: 'last' },
+        { lineNumber: 1, text: 'line one' },
+        { lineNumber: 2, text: '' },
+        { lineNumber: 3, text: '    x  =  1' },
+        { lineNumber: 4, text: '   ' },
+        { lineNumber: 6, text: 'last' },
       ])
     );
 
     assert.ok(savedPath);
     assert.deepEqual(
       splitFileContent(await fs.readFile(savedPath, 'utf8')),
-      ['line zero', '', '    x  =  1', '   ', '', 'last']
+      ['line one', '', '    x  =  1', '   ', '', 'last']
     );
   });
 });
@@ -263,7 +309,7 @@ test('IdeCodeSaver ignores unnumbered lines instead of guessing their position',
     const saver = new IdeCodeSaver();
     const savedPath = await saver.save(
       ideInput(directory, [
-        { lineNumber: 2, text: 'numbered' },
+        { lineNumber: 3, text: 'numbered' },
         { text: 'number is unreadable' },
       ])
     );
@@ -279,11 +325,11 @@ test('IdeCodeSaver ignores unnumbered lines instead of guessing their position',
 test('IdeCodeSaver does not save without a valid canonicalId', async () => {
   await withTempDir(async (directory) => {
     const withoutEntityId = await getSaver('ide_code').save({
-      ...ideInput(directory, [{ lineNumber: 0, text: 'code' }]),
+      ...ideInput(directory, [{ lineNumber: 1, text: 'code' }]),
       entityId: undefined,
     });
     const withEmptyId = await getSaver('ide_code').save(
-      ideInput(directory, [{ lineNumber: 0, text: 'code' }], '')
+      ideInput(directory, [{ lineNumber: 1, text: 'code' }], '')
     );
 
     assert.equal(withoutEntityId, undefined);
@@ -295,7 +341,10 @@ test('IdeCodeSaver does not save without a valid canonicalId', async () => {
 test('IdeCodeSaver does not save when recognition has no line numbers', async () => {
   await withTempDir(async (directory) => {
     const savedPath = await new IdeCodeSaver().save(
-      ideInput(directory, [{ text: 'no gutter number' }])
+      ideInput(directory, [
+        { text: 'no gutter number' },
+        { lineNumber: 0, text: 'line numbers are 1-based' },
+      ])
     );
 
     assert.equal(savedPath, undefined);
@@ -329,7 +378,7 @@ test('IdeCodeSaver rejects unsafe canonicalId values', async () => {
     for (const canonicalId of unsafeIds) {
       assert.equal(
         await saver.save(
-          ideInput(directory, [{ lineNumber: 0, text: 'x' }], canonicalId)
+          ideInput(directory, [{ lineNumber: 1, text: 'x' }], canonicalId)
         ),
         undefined
       );
@@ -361,7 +410,7 @@ test('IdeCodeSaver propagates file-system write errors', async () => {
 
     await assert.rejects(
       new IdeCodeSaver().save(
-        ideInput(directory, [{ lineNumber: 0, text: 'x' }], 'src/file.py')
+        ideInput(directory, [{ lineNumber: 1, text: 'x' }], 'src/file.py')
       )
     );
   });

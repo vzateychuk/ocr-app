@@ -54,7 +54,7 @@ test('default recognizer returns undefined for malformed or empty responses', as
   );
 });
 
-test('code recognition converts 1-based gutter numbers to zero-based indexes', () => {
+test('code recognition preserves 1-based gutter numbers', () => {
   const result = parseCodeRecognition(
     [
       'L00029|I00|old 29 replacement',
@@ -65,9 +65,9 @@ test('code recognition converts 1-based gutter numbers to zero-based indexes', (
 
   assert.ok(result);
   assert.deepEqual(result.lines, [
-    { lineNumber: 28, text: 'old 29 replacement' },
-    { lineNumber: 29, text: '' },
-    { lineNumber: 30, text: '        indented  exactly' },
+    { lineNumber: 29, text: 'old 29 replacement' },
+    { lineNumber: 30, text: '' },
+    { lineNumber: 31, text: '        indented  exactly' },
   ]);
   assert.equal(
     result.text,
@@ -87,7 +87,7 @@ test('code recognition skips lines without a valid source-line prefix', () => {
   );
 
   assert.ok(result);
-  assert.deepEqual(result.lines, [{ lineNumber: 9, text: 'known' }]);
+  assert.deepEqual(result.lines, [{ lineNumber: 10, text: 'known' }]);
 });
 
 test('code recognition preserves quotes, separators, indentation and trailing spaces', () => {
@@ -97,8 +97,8 @@ test('code recognition preserves quotes, separators, indentation and trailing sp
 
   assert.ok(result);
   assert.deepEqual(result.lines, [
-    { lineNumber: 0, text: '    value = "quoted" + \'single\'  | tail   ' },
-    { lineNumber: 1, text: '' },
+    { lineNumber: 1, text: '    value = "quoted" + \'single\'  | tail   ' },
+    { lineNumber: 2, text: '' },
   ]);
 });
 
@@ -134,7 +134,7 @@ test('code recognition ignores markdown fences and non-prefixed lines', () => {
   );
 
   assert.ok(result);
-  assert.deepEqual(result.lines, [{ lineNumber: 23, text: '    code line' }]);
+  assert.deepEqual(result.lines, [{ lineNumber: 24, text: '    code line' }]);
 });
 
 test('code recognizer rejects responses without numbered lines', async () => {

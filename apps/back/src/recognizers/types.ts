@@ -3,8 +3,7 @@ import type { ImageCategory } from '../types/jev.types.js';
 
 export interface RecognizedLine {
   /**
-   * Zero-based source line index. Present when the screenshot shows gutter
-   * numbers. The visible 1-based number is converted by the recognizer.
+   * 1-based source line number as shown in the screenshot gutter.
    */
   lineNumber?: number;
   /** Recognized line content without gutter numbers or UI markers. */
@@ -34,5 +33,5 @@ export interface Recognizer {
 export function isNumberedLine(
   line: RecognizedLine
 ): line is NumberedRecognizedLine {
-  return Number.isInteger(line.lineNumber) && (line.lineNumber as number) >= 0;
+  return Number.isInteger(line.lineNumber) && (line.lineNumber as number) >= 1;
 }

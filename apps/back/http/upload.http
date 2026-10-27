@@ -8,10 +8,10 @@ POST {{baseUrl}}/api/upload
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
 
 ------WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="images"; filename="code-15.png"
+Content-Disposition: form-data; name="images"; filename="c175021a-3284-code-08.png"
 Content-Type: image/png
 
-< {{fixtures}}/code-15.png
+< {{fixtures}}/c175021a-3284-code-08.png
 ------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
 ---
